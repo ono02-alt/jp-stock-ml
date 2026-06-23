@@ -8,12 +8,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+HAS_PANDAS_TA = False
 try:
+    # pandas-ta-openbb (Python 3.11+対応: pip install pandas-ta-openbb)
     import pandas_ta as ta
     HAS_PANDAS_TA = True
 except ImportError:
-    HAS_PANDAS_TA = False
-    logger.warning("pandas_ta が見つかりません。手動計算にフォールバックします")
+    logger.info("pandas_ta が見つかりません。内蔵計算関数を使用します（動作に影響なし）")
 
 
 def _ema(series: pd.Series, period: int) -> pd.Series:
@@ -188,4 +189,4 @@ def get_feature_columns() -> list:
         "atr_ratio",
         "vol_ratio_5", "vol_ratio_20",
         "high_low_ratio",
-      ]
+    ]
