@@ -242,14 +242,23 @@ def fetch_batch_1min(
 
 
 def get_latest_price(ticker: str) -> Optional[dict]:
-    """直近の株価情報を取得"""
+    """直近の株価情報を取得（yfinance 1.x対応）"""
     try:
         t = yf.Ticker(ticker)
         info = t.fast_info
+        # yfinance 1.x では last_price / last_volume が利用可能
+        price = getattr(info, "last_price", None)
+        volume = getattr(info, "last_volume", None)
+        # フォールバック: 属性が取れない場合はhistoryから取得
+        if price is None:
+            hist = t.history(period="1d", interval="1m")
+            if hist is not None and not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+                volume = int(hist["Volume"].iloc[-1])
         return {
             "ticker": ticker,
-            "price": getattr(info, "last_price", None),
-            "volume": getattr(info, "last_volume", None),
+            "price": float(price) if price is not None else None,
+            "volume": int(volume) if volume is not None else None,
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
