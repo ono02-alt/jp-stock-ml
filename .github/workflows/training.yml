@@ -1,0 +1,83 @@
+name: JP Stock ML - 歴史的学習継続
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード'
+        required: false
+        default: 'historical'
+
+permissions:
+  contents: write
+
+jobs:
+  historical-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 依存パッケージインストール
+        run: pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: キャッシュ復元（前回の進捗を引き継ぐ）
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            data/cache/
+          key: ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.run_number }}
+          restore-keys: |
+            ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
+            ml-models-${{ runner.os }}-
+
+      - name: ディレクトリ作成
+        run: mkdir -p logs models data/cache
+
+      - name: 歴史的学習実行（再開モード）
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TZ: Asia/Tokyo
+        run: |
+          python main.py --mode historical --max-time 20000
+
+      - name: 進捗をアーティファクトに保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-progress-${{ github.run_number }}
+          path: |
+            models/training_progress.json
+            models/historical_training_done.json
+          retention-days: 7
+
+      - name: 学習未完了なら自動で次ワークフロー起動
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f models/historical_training_done.json ]; then
+            if [ -f models/training_progress.json ]; then
+              TRAINED=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('trained',[])))")
+              TOTAL=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('total',[])))")
+              echo "歴史的学習進捗: $TRAINED / $TOTAL"
+              if [ "$TRAINED" -lt "$TOTAL" ]; then
+                echo "6時間制限のため継続ワークフローを起動..."
+                sleep 30
+                gh workflow run training.yml -f mode=historical
+              else
+                echo "全銘柄の学習が完了しました！"
+              fi
+            fi
+          else
+            echo "歴史的学習は完了済みです。"
+          fi
