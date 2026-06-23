@@ -424,4 +424,350 @@ function renderFeatureImportance(fi) {
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">特徴量重要度（上位5）</div>
       ${top5.map(([k,v]) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <di
+          <div style="font-size:10px;color:var(--text-muted);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k}</div>
+          <div style="flex:1;background:var(--border);border-radius:3px;height:6px;">
+            <div style="background:var(--blue);width:${Math.round(v/max*100)}%;height:100%;border-radius:3px;"></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ======= ローソク足チャート =======
+function drawCandleChart(data) {
+  const canvas = document.getElementById('candleChart');
+  if (!canvas || !data || data.length === 0) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth - 24;
+  const H = 200;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  const pad = { top: 10, bottom: 20, left: 8, right: 8 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  const n = Math.min(data.length, 80);
+  const slice = data.slice(-n);
+
+  const prices = slice.flatMap(c => [c.high, c.low]);
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const range = maxP - minP || 1;
+
+  const candleW = Math.max(2, Math.floor(chartW / n) - 1);
+
+  ctx.clearRect(0, 0, W, H);
+
+  slice.forEach((c, i) => {
+    const x = pad.left + i * (chartW / n) + candleW / 2;
+    const isBull = c.close >= c.open;
+    const color = isBull ? '#3fb950' : '#f85149';
+
+    const yHigh = pad.top + (1 - (c.high - minP) / range) * chartH;
+    const yLow  = pad.top + (1 - (c.low  - minP) / range) * chartH;
+    const yOpen = pad.top + (1 - (c.open - minP) / range) * chartH;
+    const yClose= pad.top + (1 - (c.close- minP) / range) * chartH;
+
+    // ヒゲ
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.moveTo(x, yHigh);
+    ctx.lineTo(x, yLow);
+    ctx.stroke();
+
+    // 実体
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    ctx.fillStyle = color;
+    ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+  });
+
+  // 時間ラベル（最初・中間・最後）
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  [0, Math.floor(n / 2), n - 1].forEach(i => {
+    if (!slice[i]) return;
+    const x = pad.left + i * (chartW / n) + candleW / 2;
+    const t = slice[i].time || '';
+    const label = t.includes('T') ? t.split('T')[1].slice(0, 5) : t.slice(-5);
+    ctx.fillText(label, x, H - 4);
+  });
+}
+
+// ======= ランキング =======
+async function loadRanking() {
+  const area = document.getElementById('rankingArea');
+  area.innerHTML = '<div class="loading"><div class="spinner"></div><div>読み込み中...</div></div>';
+  try {
+    const r = await fetch('/api/predictions');
+    const d = await r.json();
+    const preds = d.predictions || {};
+    const list = Object.entries(preds)
+      .map(([ticker, p]) => ({ ticker, ...p }))
+      .sort((a, b) => b.bullish_prob - a.bullish_prob);
+
+    if (list.length === 0) {
+      area.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">${d.message || '予測データがありません'}</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <table class="stocks-table">
+        <thead>
+          <tr>
+            <th>銘柄</th>
+            <th>現在値</th>
+            <th>予測</th>
+            <th>陽線確率</th>
+            <th>精度</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(p => {
+            const isBull = p.prediction === 'bullish';
+            const pct = Math.round(p.bullish_prob * 100);
+            const barW = Math.round(Math.abs(p.bullish_prob - 0.5) * 200);
+            return `<tr onclick="loadPrediction('${p.ticker}','${p.name||p.ticker}');document.querySelector('[data-tab=predict]').click()">
+              <td>
+                <div style="font-weight:700;font-size:12px">${p.ticker.replace('.T','')}</div>
+                <div style="font-size:10px;color:var(--text-muted)">${p.name||''}</div>
+              </td>
+              <td>¥${(p.price||0).toLocaleString()}</td>
+              <td class="${isBull?'bullish-tag':'bearish-tag'}">${isBull?'🟢陽':'🔴陰'}</td>
+              <td>
+                ${pct}%
+                <span class="conf-bar" style="width:${barW}px;background:${isBull?'var(--green)':'var(--red)'}"></span>
+              </td>
+              <td>${p.model_accuracy ? Math.round(p.model_accuracy*100)+'%' : '−'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch(e) {
+    area.innerHTML = `<div class="error-box">読み込みエラー: ${e.message}</div>`;
+  }
+}
+
+// ======= 取引分析 =======
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('uploadArea').classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  document.getElementById('uploadArea').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadArea').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) analyzeFile(file);
+}
+function uploadFile(e) {
+  const file = e.target.files[0];
+  if (file) analyzeFile(file);
+}
+
+async function analyzeFile(file) {
+  const area = document.getElementById('tradeAnalysisArea');
+  area.innerHTML = '<div class="loading"><div class="spinner"></div><div>分析中... しばらくお待ちください</div></div>';
+
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const r = await fetch('/api/analyze-trades', { method: 'POST', body: form });
+    const d = await r.json();
+    if (d.error) { area.innerHTML = `<div class="error-box">${d.error}</div>`; return; }
+    renderTradeAnalysis(area, d);
+  } catch(e) {
+    area.innerHTML = `<div class="error-box">エラー: ${e.message}</div>`;
+  }
+}
+
+function renderTradeAnalysis(area, d) {
+  const m = d.summary_metrics || {};
+  const pf = (m.profit_factor || 0).toFixed(2);
+  const rr = (m.risk_reward || 0).toFixed(2);
+  const wr = m.win_rate ? Math.round(m.win_rate * 100) : 0;
+  const totalPnl = m.total_pnl || 0;
+
+  let html = `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+      総取引数: <span style="color:var(--text);font-weight:700">${m.total_trades||0}</span> 件 分析完了
+    </div>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">合計損益</div>
+        <div class="metric-value ${totalPnl>=0?'positive':'negative'}">¥${Math.round(totalPnl).toLocaleString()}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">勝率</div>
+        <div class="metric-value ${wr>=50?'positive':'negative'}">${wr}%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">リスクリワード</div>
+        <div class="metric-value ${rr>=1?'positive':'negative'}">${rr}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">プロフィットファクター</div>
+        <div class="metric-value ${pf>=1?'positive':'negative'}">${pf}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">平均利益</div>
+        <div class="metric-value positive">¥${Math.round(m.avg_win||0).toLocaleString()}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">平均損失</div>
+        <div class="metric-value negative">¥${Math.round(m.avg_loss||0).toLocaleString()}</div>
+      </div>
+    </div>
+  `;
+
+  // AI分析
+  if (d.ai_advice) {
+    html += `
+      <div class="ai-advice-box">
+        <div class="ai-advice-title">🤖 AIトレーディングコーチ</div>
+        <div class="ai-advice-text">${escHtml(d.ai_advice)}</div>
+      </div>
+    `;
+  }
+
+  // 銘柄別分析
+  const perTicker = d.per_ticker_analysis || {};
+  Object.entries(perTicker).forEach(([ticker, ta]) => {
+    const advice = ta.technical_advice || {};
+    const ee = ta.entry_exit_analysis || {};
+
+    html += `<div style="margin-bottom:20px;">
+      <div class="advice-title">📌 ${ticker.replace('.T','')} ${advice.ticker||''}</div>`;
+
+    // エントリー・決済最適化
+    if (ee.actual_entry) {
+      html += `
+        <div class="rr-section">
+          <div class="rr-title">💡 エントリー・決済の改善ポイント（直近トレード）</div>
+          <div class="rr-row"><span class="rr-key">実際のエントリー</span><span>¥${ee.actual_entry.toLocaleString()}</span></div>
+          <div class="rr-row"><span class="rr-key">実際の決済</span><span>¥${ee.actual_exit.toLocaleString()}</span></div>
+          <div class="rr-row"><span class="rr-key">実際の損益/株</span><span style="color:${ee.actual_pnl_per_share>=0?'var(--green)':'var(--red)'}">¥${ee.actual_pnl_per_share}</span></div>
+          <div class="rr-row"><span class="rr-key">最適エントリー</span><span style="color:var(--blue)">¥${ee.optimal_entry}</span></div>
+          <div class="rr-row"><span class="rr-key">最適決済</span><span style="color:var(--blue)">¥${ee.optimal_exit}</span></div>
+          <div class="rr-row"><span class="rr-key">最適損益/株</span><span style="color:var(--green)">¥${ee.optimal_pnl_per_share}</span></div>
+          <div class="rr-row"><span class="rr-key">改善余地</span><span style="color:var(--yellow);font-weight:700">¥${ee.improvement_potential}</span></div>
+        </div>
+        <div class="advice-item">
+          <div class="advice-indicator">📍 エントリーアドバイス</div>
+          <div class="advice-detail">${(ee.entry_advice||[]).join('<br>')}</div>
+        </div>
+        <div class="advice-item">
+          <div class="advice-indicator">🏁 決済アドバイス</div>
+          <div class="advice-detail">${(ee.exit_advice||[]).join('<br>')}</div>
+        </div>
+      `;
+    }
+
+    // テクニカル指標アドバイス
+    const indicators = advice.indicators_advice || [];
+    if (indicators.length > 0) {
+      html += `<div class="advice-section"><div class="advice-title">📐 テクニカル指標の有効性</div>`;
+      indicators.forEach(ind => {
+        const effClass = ind.effectiveness === '高い' ? 'eff-high' : ind.effectiveness === '中程度' ? 'eff-mid' : 'eff-low';
+        html += `
+          <div class="advice-item">
+            <div class="advice-indicator">
+              ${ind.indicator}
+              <span class="effectiveness-badge ${effClass}">${ind.effectiveness}</span>
+            </div>
+            <div class="advice-detail">${escHtml(ind.detail)}</div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+    }
+
+    // 推奨戦略
+    const strats = (advice.recommended_strategies || []);
+    if (strats.length > 0) {
+      html += `<div class="advice-section"><div class="advice-title">🎯 推奨戦略</div>`;
+      strats.forEach(s => {
+        html += `
+          <div class="advice-item">
+            <div class="advice-indicator">✅ ${s.strategy}</div>
+            <div class="advice-detail">${escHtml(s.reason)}</div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  });
+
+  area.innerHTML = html;
+}
+
+// ======= システム状況 =======
+async function loadStatus() {
+  const area = document.getElementById('statusArea');
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const prog = d.training_progress || {};
+    const pct = prog.completion_pct ? prog.completion_pct.toFixed(1) : 0;
+    const trained = (prog.trained||[]).length;
+    const total = (prog.total||[]).length;
+
+    area.innerHTML = `
+      <div class="status-bar">
+        <div>セッション: <span>${{'pre_market':'開場前','morning':'前場中','lunch':'昼休み','afternoon':'後場中','post_market':'閉場後'}[d.session]||d.session}</span></div>
+        <div>市場: <span style="color:${d.market_open?'var(--green)':'var(--text-muted)'}">${d.market_open?'開場中':'閉場中'}</span></div>
+        <div>モデル数: <span>${d.trained_models}</span></div>
+        <div>JST: <span>${d.server_time_jst?.split('T')[1]?.slice(0,8)||'−'}</span></div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px;">🤖 機械学習 進捗状況</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
+          <span>学習完了: ${trained} / ${total} 銘柄</span>
+          <span>${pct}%</span>
+        </div>
+        <div style="background:var(--border);border-radius:4px;height:8px;">
+          <div style="background:var(--blue);width:${pct}%;height:100%;border-radius:4px;transition:width .5s"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:8px;">
+          モード: ${prog.mode||'−'} ・ 最終更新: ${prog.last_updated?.split('T')[0]||'−'}
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px;">ℹ️ システム情報</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:2">
+          ・ データソース: Yahoo Finance (yfinance) / JPX公式 XLS<br>
+          ・ 1分足: 最大7日間取得可能<br>
+          ・ 歴史的学習: バブル崩壊後（1991年〜）の日足データ使用（初回のみ）<br>
+          ・ ザラバ学習: 前場・後場中に1分足データで随時更新<br>
+          ・ ML: LightGBM（フォールバック: scikit-learn GBM）<br>
+          ・ 実行環境: GitHub Actions（公開リポジトリ・無料）<br>
+          ・ Anthropic API: 取引分析のAIアドバイスに使用
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    area.innerHTML = `<div class="error-box">ステータス取得エラー: ${e.message}</div>`;
+  }
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
