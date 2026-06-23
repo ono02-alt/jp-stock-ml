@@ -1,0 +1,107 @@
+name: JP Stock ML - Training & Prediction
+
+on:
+  schedule:
+    # 開場前: 月〜金 08:30 JST (= 23:30 UTC 前日)
+    - cron: '30 23 * * 0-4'
+    # 前場開始: 月〜金 09:05 JST (= 00:05 UTC)
+    - cron: '5 0 * * 1-5'
+    # 前場後半: 月〜金 10:30 JST (= 01:30 UTC)
+    - cron: '30 1 * * 1-5'
+    # 後場開始: 月〜金 12:35 JST (= 03:35 UTC)
+    - cron: '35 3 * * 1-5'
+    # 後場後半: 月〜金 14:00 JST (= 05:00 UTC)
+    - cron: '0 5 * * 1-5'
+    # 閉場後: 月〜金 16:00 JST (= 07:00 UTC)
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - historical
+          - intraday
+          - predict
+
+permissions:
+  contents: write
+
+jobs:
+  ml-train-predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # 5時間50分（6時間制限の安全マージン）
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 依存パッケージインストール
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: モデル・キャッシュの復元
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            data/cache/
+          key: ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.run_number }}
+          restore-keys: |
+            ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
+            ml-models-${{ runner.os }}-
+
+      - name: ログディレクトリ作成
+        run: mkdir -p logs models data/cache
+
+      - name: ML学習・予測実行
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TZ: Asia/Tokyo
+        run: |
+          MODE="${{ github.event.inputs.mode || 'auto' }}"
+          echo "実行モード: $MODE"
+          python main.py --mode "$MODE" --max-time 20000
+
+      - name: 予測結果をアーティファクトに保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: predictions-${{ github.run_number }}
+          path: |
+            data/cache/predictions.json
+            models/training_progress.json
+          retention-days: 3
+
+      - name: 実行ログをアーティファクトに保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 7
+
+      - name: 次ワークフロー起動（歴史的学習が未完了の場合）
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f models/training_progress.json ] && [ ! -f models/historical_training_done.json ]; then
+            TRAINED=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('trained',[])))")
+            TOTAL=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('total',[])))")
+            echo "進捗: $TRAINED / $TOTAL"
+            if [ "$TRAINED" -lt "$TOTAL" ]; then
+              echo "歴史的学習が未完了。次のワークフローを起動..."
+              gh workflow run training.yml -f mode=historical
+            fi
+          fi
