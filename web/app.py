@@ -10,7 +10,14 @@ import logging
 from datetime import datetime
 
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+from datetime import timedelta as _timedelta
+
+try:
+    from flask_cors import CORS
+except ImportError:
+    # flask-cors がない場合のフォールバック
+    class CORS:
+        def __init__(self, app, **kwargs): pass
 
 # パス設定
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -199,7 +206,7 @@ def create_app() -> Flask:
             "market_open": is_market_open(),
             "trained_models": len(model_files),
             "training_progress": progress,
-            "server_time_jst": (datetime.utcnow().replace(tzinfo=None) + __import__("datetime").timedelta(hours=9)).isoformat(),
+            "server_time_jst": (datetime.utcnow().replace(tzinfo=None) + _timedelta(hours=9)).isoformat(),
         })
 
     # ======= API: ヘルスチェック =======
