@@ -31,10 +31,8 @@ jobs:
         run: mkdir -p logs models data/cache
 
       - name: テスト実行
-        run: python -m pytest tests/test_all.py -v --tb=short 2>&1
+        run: python -m pytest tests/test_all.py -v --tb=short
 
       - name: カバレッジレポート（オプション）
         if: always()
-        run: |
-          pip install pytest-cov 2>/dev/null || true
-          python -m pytest tests/test_all.py --cov=src --cov-report=term-missing 2>&1 || true
+        run: python -m pytest tests/test_all.py --cov=src --cov-report=term-missing || true
