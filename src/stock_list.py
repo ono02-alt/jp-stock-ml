@@ -135,7 +135,6 @@ def get_tradeable_stocks(
                 auto_adjust=True,
                 multi_level_index=False,
                 progress=False,
-                threads=False,
             )
 
             if data.empty:
