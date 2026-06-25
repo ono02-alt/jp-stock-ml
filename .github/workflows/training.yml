@@ -27,7 +27,9 @@ jobs:
           cache: 'pip'
 
       - name: 依存パッケージインストール
-        run: pip install --upgrade pip && pip install -r requirements.txt
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: キャッシュ復元（前回の進捗を引き継ぐ）
         uses: actions/cache@v4
@@ -35,9 +37,8 @@ jobs:
           path: |
             models/
             data/cache/
-          key: ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.run_number }}
+          key: ml-models-${{ runner.os }}-${{ github.run_number }}
           restore-keys: |
-            ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
             ml-models-${{ runner.os }}-
 
       - name: ディレクトリ作成
@@ -47,8 +48,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TZ: Asia/Tokyo
-        run: |
-          python main.py --mode historical --max-time 20000
+        run: python main.py --mode historical --max-time 20000
 
       - name: 進捗をアーティファクトに保存
         if: always()
@@ -60,7 +60,7 @@ jobs:
             models/historical_training_done.json
           retention-days: 7
 
-      - name: 学習未完了なら自動で次ワークフロー起動
+      - name: 学習未完了なら次のワークフローを自動起動（6時間チェーン）
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
