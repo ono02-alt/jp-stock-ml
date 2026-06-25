@@ -29,7 +29,7 @@ on:
           - pages
 
 permissions:
-  contents: write   # docs/ への commit/push に必要
+  contents: write
 
 jobs:
   ml-train-predict:
@@ -78,7 +78,7 @@ jobs:
       - name: docs/index.html を最新の web/index.html に同期
         run: cp web/index.html docs/index.html
 
-      - name: .nojekyll を配置（Jekyll処理をスキップ）
+      - name: .nojekyll を配置
         run: touch docs/.nojekyll
 
       - name: docs/ の変更を commit & push
@@ -86,7 +86,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/
-          # 変更がある場合のみ commit
           git diff --cached --quiet || git commit -m "chore: update predictions [skip ci]"
           git push
 
@@ -120,76 +119,6 @@ jobs:
             echo "進捗: $TRAINED / $TOTAL"
             if [ "$TRAINED" -lt "$TOTAL" ]; then
               echo "歴史的学習未完了 → 継続ワークフロー起動"
-              gh workflow run training.yml -f mode=historical
-            fi
-          fi
-    steps:
-      - name: リポジトリをチェックアウト
-        uses: actions/checkout@v4
-
-      - name: Python 3.11 セットアップ
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: 依存パッケージインストール
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: モデル・キャッシュの復元
-        uses: actions/cache@v4
-        with:
-          path: |
-            models/
-            data/cache/
-          key: ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-${{ github.run_number }}
-          restore-keys: |
-            ml-models-${{ runner.os }}-${{ hashFiles('requirements.txt') }}-
-            ml-models-${{ runner.os }}-
-
-      - name: ログディレクトリ作成
-        run: mkdir -p logs models data/cache
-
-      - name: ML学習・予測実行
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TZ: Asia/Tokyo
-        run: |
-          MODE="${{ github.event.inputs.mode || 'auto' }}"
-          echo "実行モード: $MODE"
-          python main.py --mode "$MODE" --max-time 20000
-
-      - name: 予測結果をアーティファクトに保存
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: predictions-${{ github.run_number }}
-          path: |
-            data/cache/predictions.json
-            models/training_progress.json
-          retention-days: 3
-
-      - name: 実行ログをアーティファクトに保存
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ github.run_number }}
-          path: logs/
-          retention-days: 7
-
-      - name: 次ワークフロー起動（歴史的学習が未完了の場合）
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -f models/training_progress.json ] && [ ! -f models/historical_training_done.json ]; then
-            TRAINED=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('trained',[])))")
-            TOTAL=$(python -c "import json; d=json.load(open('models/training_progress.json')); print(len(d.get('total',[])))")
-            echo "進捗: $TRAINED / $TOTAL"
-            if [ "$TRAINED" -lt "$TOTAL" ]; then
-              echo "歴史的学習が未完了。次のワークフローを起動..."
               gh workflow run training.yml -f mode=historical
             fi
           fi
