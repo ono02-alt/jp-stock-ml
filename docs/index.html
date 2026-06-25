@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JP Stock ML - 日本株ML予測システム</title>
+  <style>
+    :root {
+      --bg: #0d1117; --surface: #161b22; --surface2: #1e2530;
+      --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+      --green: #3fb950; --red: #f85149; --blue: #58a6ff;
+      --yellow: #d29922; --purple: #bc8cff; --accent: #1f6feb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system,'Hiragino Sans','Noto Sans JP',sans-serif; font-size: 14px; }
+
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 100; }
+    .header h1 { font-size: 15px; font-weight: 700; color: var(--blue); }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+    .badge-open   { background: rgba(63,185,80,.2);  color: var(--green); border: 1px solid var(--green); }
+    .badge-closed { background: rgba(139,148,158,.1); color: var(--muted); border: 1px solid var(--border); }
+    .session-lbl { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 14px; }
+
+    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+    .tab-btn { background: none; border: none; color: var(--muted); padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; font-size: 13px; }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* 検索 */
+    .search-wrap { position: relative; margin-bottom: 14px; }
+    .search-input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 42px 10px 14px; color: var(--text); font-size: 14px; outline: none; }
+    .search-input:focus { border-color: var(--accent); }
+    .search-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+    .dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; max-height: 260px; overflow-y: auto; z-index: 200; display: none; }
+    .dropdown-item { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+    .dropdown-item:hover { background: var(--border); }
+    .dropdown-item:last-child { border-bottom: none; }
+    .di-name { font-weight: 600; font-size: 13px; }
+    .di-meta { font-size: 11px; color: var(--muted); }
+
+    /* 予測カード */
+    .pred-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+    .pred-header { display: flex; justify-content: space-between; margin-bottom: 14px; }
+    .pred-ticker { font-size: 20px; font-weight: 700; }
+    .pred-name { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .pred-price-val { font-size: 20px; font-weight: 700; text-align: right; }
+    .pred-price-vol { font-size: 11px; color: var(--muted); text-align: right; }
+
+    .pred-result { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; }
+    .pred-result.bullish { background: rgba(63,185,80,.1);  border: 1px solid rgba(63,185,80,.3); }
+    .pred-result.bearish { background: rgba(248,81,73,.1);  border: 1px solid rgba(248,81,73,.3); }
+    .pred-icon { font-size: 22px; }
+    .pred-main { font-size: 15px; font-weight: 700; }
+    .pred-sub  { font-size: 11px; color: var(--muted); }
+    .pred-conf { margin-left: auto; text-align: right; }
+    .pred-conf-val { font-size: 18px; font-weight: 700; }
+    .pred-conf-lbl { font-size: 10px; color: var(--muted); }
+
+    .meter-wrap { margin-bottom: 14px; }
+    .meter-labels { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+    .meter { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; }
+    .meter-fill { height: 100%; border-radius: 5px; transition: width .5s; }
+    .fill-bull { background: linear-gradient(90deg,#3fb950,#58d68d); }
+    .fill-bear { background: linear-gradient(90deg,#f85149,#ff6b6b); }
+
+    .chart-box { background: var(--surface2); border-radius: 8px; padding: 10px; margin-bottom: 14px; }
+    #candleChart { width: 100%; height: 200px; display: block; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .stat-item { background: var(--surface2); border-radius: 6px; padding: 10px 12px; }
+    .stat-lbl { font-size: 10px; color: var(--muted); margin-bottom: 3px; }
+    .stat-val { font-size: 14px; font-weight: 600; }
+
+    .fi-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .fi-name { font-size: 10px; color: var(--muted); width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fi-bar-bg { flex: 1; background: var(--border); border-radius: 3px; height: 6px; }
+    .fi-bar { height: 100%; background: var(--blue); border-radius: 3px; }
+
+    /* ランキング */
+    .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tbl th { background: var(--surface2); padding: 8px 10px; text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .tbl tr:hover td { background: var(--surface2); cursor: pointer; }
+    .bull { color: var(--green); font-weight: 700; }
+    .bear { color: var(--red);   font-weight: 700; }
+    .mini-bar { display: inline-block; height: 4px; border-radius: 2px; vertical-align: middle; margin-left: 4px; }
+
+    /* 取引分析 */
+    .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 30px 16px; text-align: center; cursor: pointer; transition: border-color .2s; margin-bottom: 14px; }
+    .upload-area:hover,.upload-area.drag-over { border-color: var(--accent); }
+    .upload-icon { font-size: 34px; margin-bottom: 8px; }
+    .upload-lbl  { font-size: 14px; color: var(--muted); }
+    .upload-sub  { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    #fileInput { display: none; }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+    .mc { background: var(--surface2); border-radius: 8px; padding: 12px; }
+    .mc-lbl { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+    .mc-val { font-size: 20px; font-weight: 700; }
+    .pos { color: var(--green); } .neg { color: var(--red); }
+
+    .sec-title { font-size: 13px; font-weight: 700; color: var(--blue); margin: 14px 0 8px; border-left: 3px solid var(--blue); padding-left: 8px; }
+    .advice-item { background: var(--surface2); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .adv-ind { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .adv-det { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .eff { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+    .eff-h { background: rgba(63,185,80,.2);  color: var(--green); }
+    .eff-m { background: rgba(210,153,34,.2); color: var(--yellow); }
+    .eff-l { background: rgba(139,148,158,.2); color: var(--muted); }
+
+    .rr-box { background: var(--surface2); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    .rr-ttl { font-size: 12px; font-weight: 700; color: var(--yellow); margin-bottom: 8px; }
+    .rr-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .rr-row:last-child { border-bottom: none; }
+    .rr-key { color: var(--muted); }
+
+    .ai-box { background: linear-gradient(135deg,rgba(31,111,235,.1),rgba(188,140,255,.1)); border: 1px solid rgba(88,166,255,.2); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .ai-ttl  { font-size: 12px; font-weight: 700; color: var(--purple); margin-bottom: 8px; }
+    .ai-body { font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+
+    /* ステータス */
+    .status-bar { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 11px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+    .status-bar span { color: var(--text); font-weight: 600; }
+    .info-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+    .info-ttl { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+    .prog-bar-bg { background: var(--border); border-radius: 4px; height: 8px; }
+    .prog-bar-fill { background: var(--blue); height: 100%; border-radius: 4px; transition: width .5s; }
+
+    .loading { text-align: center; padding: 36px; color: var(--muted); }
+    .spinner { display: inline-block; width: 22px; height: 22px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .err { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3); border-radius: 8px; padding: 12px 14px; color: var(--red); font-size: 13px; margin-bottom: 10px; }
+    .btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    /* GitHub Pages モード通知 */
+    .pages-notice { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
+    .pages-notice strong { color: var(--blue); }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📈 JP Stock ML</h1>
+  <span id="marketBadge" class="badge badge-closed">−</span>
+  <span id="sessionLabel" class="session-lbl">読み込み中...</span>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="predict">🔍 銘柄予測</button>
+    <button class="tab-btn" data-tab="ranking">📊 ランキング</button>
+    <button class="tab-btn" data-tab="trade">📋 取引分析</button>
+    <button class="tab-btn" data-tab="status">⚙️ システム</button>
+  </div>
+
+  <!-- 予測タブ -->
+  <div class="tab-panel active" id="tab-predict">
+    <div class="pages-notice">
+      <strong>ℹ️ GitHub Pages モード</strong>：GitHub Actions が定期更新した予測データを表示しています。
+      銘柄検索は登録済み銘柄のみ対応。リアルタイム更新は Oracle Cloud 版で利用できます。
+    </div>
+    <div class="search-wrap">
+      <input type="text" id="searchInput" class="search-input"
+        placeholder="銘柄コード or 銘柄名で検索（例: 7203 / トヨタ）"
+        autocomplete="off" />
+      <button class="search-btn" onclick="doSearch()">🔍</button>
+      <div class="dropdown" id="dropdown"></div>
+    </div>
+    <div id="predictionArea"></div>
+  </div>
+
+  <!-- ランキングタブ -->
+  <div class="tab-panel" id="tab-ranking">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:12px;color:var(--muted)">陽線確率降順</div>
+      <button class="btn btn-outline" onclick="loadRanking()">🔄 更新</button>
+    </div>
+    <div id="rankingArea"><div class="loading"><div class="spinner"></div><div>読み込み中...</div></div></div>
+  </div>
+
+  <!-- 取引分析タブ -->
+  <div class="tab-panel" id="tab-trade">
+    <div class="pages-notice">
+      <strong>ℹ️ 取引分析はブラウザ内で完結</strong>します（サーバー不要）。
+      CSV をアップロードするとローカルで解析・表示します。AIアドバイスは Oracle Cloud 版で利用できます。
+    </div>
+    <div class="upload-area" id="uploadArea"
+      onclick="document.getElementById('fileInput').click()"
+      ondragover="handleDragOver(event)"
+      ondragleave="handleDragLeave(event)"
+      ondrop="handleDrop(event)">
+      <div class="upload-icon">📂</div>
+      <div class="upload-lbl">SBI証券 取引履歴CSVをアップロード</div>
+      <div class="upload-sub">タップまたはドラッグ＆ドロップ</div>
+      <div class="upload-sub" style="margin-top:6px">対応: 現物・信用取引履歴CSV（Shift-JIS / UTF-8）</div>
+    </div>
+    <input type="file" id="fileInput" accept=".csv" onchange="uploadFile(event)" />
+    <div id="tradeArea"></div>
+  </div>
+
+  <!-- システムタブ -->
+  <div class="tab-panel" id="tab-status">
+    <div id="statusArea"><div class="loading"><div class="spinner"></div><div>読み込み中...</div></div></div>
+  </div>
+</div>
+
+<script>
+// ======= データソース設定 =======
+// GitHub Pages では相対パスで docs/data/ を参照
+// Oracle Cloud (Flask) では /api/ エンドポイントを参照
+const IS_PAGES = !window.location.hostname.includes('localhost') &&
+                 !window.location.port;
+
+function dataUrl(file) {
+  // GitHub Pages: https://user.github.io/repo/data/xxx.json
+  // ローカル Flask: /api/... (別途 Flask が必要なので Pages では使わない)
+  return `data/${file}`;
+}
+
+// ======= 全予測データをメモリに保持 =======
+let allPredictions = {};
+let statusData     = {};
+
+async function loadAllData() {
+  try {
+    const [pr, st] = await Promise.all([
+      fetch(dataUrl('predictions.json')).then(r => r.ok ? r.json() : {}),
+      fetch(dataUrl('status.json')).then(r => r.ok ? r.json() : {}),
+    ]);
+    allPredictions = pr;
+    statusData     = st;
+    updateHeader();
+  } catch(e) {
+    console.warn('データ読み込みエラー:', e);
+  }
+}
+
+// ======= タブ =======
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'ranking') loadRanking();
+    if (btn.dataset.tab === 'status')  loadStatus();
+  });
+});
+
+// ======= ヘッダー =======
+function updateHeader() {
+  const sessionMap = {
+    pre_market:'開場前', morning:'前場中', lunch:'昼休み',
+    afternoon:'後場中', post_market:'閉場後'
+  };
+  const badge   = document.getElementById('marketBadge');
+  const session = statusData.session || 'post_market';
+  const open    = statusData.market_open || false;
+  badge.textContent  = open ? '開場中' : '閉場中';
+  badge.className    = 'badge ' + (open ? 'badge-open' : 'badge-closed');
+  document.getElementById('sessionLabel').textContent =
+    (sessionMap[session] || session) + (statusData.updated_at_utc
+      ? ' · 更新: ' + new Date(statusData.updated_at_utc + 'Z').toLocaleTimeString('ja-JP')
+      : '');
+}
+
+// ======= 検索 =======
+let searchTimer = null;
+document.getElementById('searchInput').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (!q) { hideDD(); return; }
+  searchTimer = setTimeout(() => doSearch(q), 250);
+});
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch(document.getElementById('searchInput').value.trim());
+});
+document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) hideDD(); });
+function hideDD() { document.getElementById('dropdown').style.display = 'none'; }
+
+function doSearch(q) {
+  q = q || document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  const dd = document.getElementById('dropdown');
+  dd.style.display = 'block';
+
+  // 予測データ内を検索（コード or 銘柄名）
+  const results = Object.entries(allPredictions).filter(([ticker, p]) =>
+    ticker.replace('.T','').includes(q) ||
+    (p.name && p.name.includes(q))
+  ).slice(0, 15);
+
+  if (!results.length) {
+    dd.innerHTML = '<div style="padding:10px;color:var(--muted)">見つかりませんでした（予測データに含まれる銘柄のみ検索可能）</div>';
+    return;
+  }
+  dd.innerHTML = results.map(([ticker, p]) => `
+    <div class="dropdown-item" onclick="showPrediction('${ticker}')">
+      <div>
+        <div class="di-name">${p.name || ticker.replace('.T','')}</div>
+        <div class="di-meta">${ticker.replace('.T','')} · ¥${(p.price||0).toLocaleString()}</div>
+      </div>
+      <div class="di-meta ${p.prediction==='bullish'?'bull':'bear'}">
+        ${p.prediction==='bullish'?'🟢':'🔴'} ${Math.round((p.bullish_prob||0)*100)}%
+      </div>
+    </div>`).join('');
+}
+
+// ======= 予測表示 =======
+function showPrediction(ticker) {
+  hideDD();
+  const p = allPredictions[ticker];
+  if (!p) { document.getElementById('predictionArea').innerHTML = `<div class="err">${ticker} の予測データがありません</div>`; return; }
+  document.getElementById('searchInput').value = p.name || ticker.replace('.T','');
+  renderPrediction(ticker, p);
+}
+
+function renderPrediction(ticker, p) {
+  const area   = document.getElementById('predictionArea');
+  const isBull = p.prediction === 'bullish';
+  const bullPct= Math.round((p.bullish_prob||0)*100);
+  const bearPct= 100 - bullPct;
+  const conf   = Math.round((p.confidence||0)*100);
+  const acc    = p.model_accuracy ? Math.round(p.model_accuracy*100) : '−';
+  const candle = p.latest_candle || {};
+
+  area.innerHTML = `
+    <div class="pred-card">
+      <div class="pred-header">
+        <div>
+          <div class="pred-ticker">${ticker.replace('.T','')}</div>
+          <div class="pred-name">${p.name||''}</div>
+        </div>
+        <div>
+          <div class="pred-price-val">¥${(candle.close||p.price||0).toLocaleString()}</div>
+          <div class="pred-price-vol">出来高 ${(p.avg_volume||0).toLocaleString()}</div>
+        </div>
+      </div>
+
+      <div class="pred-result ${isBull?'bullish':'bearish'}">
+        <div class="pred-icon">${isBull?'🟢':'🔴'}</div>
+        <div>
+          <div class="pred-main">${isBull?'陽線（上昇）予測':'陰線（下落）予測'}</div>
+          <div class="pred-sub">次の1分足の方向性</div>
+        </div>
+        <div class="pred-conf">
+          <div class="pred-conf-val" style="color:${isBull?'var(--green)':'var(--red)'}">${conf}%</div>
+          <div class="pred-conf-lbl">確信度</div>
+        </div>
+      </div>
+
+      <div class="meter-wrap">
+        <div class="meter-labels">
+          <span style="color:var(--green)">🟢 陽線 ${bullPct}%</span>
+          <span style="color:var(--red)">陰線 ${bearPct}% 🔴</span>
+        </div>
+        <div class="meter">
+          <div class="meter-fill ${isBull?'fill-bull':'fill-bear'}" style="width:${bullPct}%"></div>
+        </div>
+      </div>
+
+      ${candle.close ? `
+      <div class="chart-box"><canvas id="candleChart"></canvas></div>` : ''}
+
+      <div class="grid2">
+        <div class="stat-item"><div class="stat-lbl">陽線確率</div><div class="stat-val" style="color:var(--green)">${bullPct}%</div></div>
+        <div class="stat-item"><div class="stat-lbl">陰線確率</div><div class="stat-val" style="color:var(--red)">${bearPct}%</div></div>
+        <div class="stat-item"><div class="stat-lbl">モデル精度</div><div class="stat-val">${acc}%</div></div>
+        <div class="stat-item"><div class="stat-lbl">学習日</div><div class="stat-val" style="font-size:11px">${(p.model_trained_at||'−').slice(0,10)}</div></div>
+      </div>
+
+      ${renderFI(p.feature_importance)}
+
+      <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5">
+        ※ 予測は参考情報です。投資判断はご自身の責任でお願いします。<br>
+        データ更新: ${statusData.updated_at_utc ? new Date(statusData.updated_at_utc+'Z').toLocaleString('ja-JP') : '−'}
+      </div>
+    </div>`;
+
+  if (candle.close && p.chart_data) drawChart(p.chart_data);
+}
+
+function renderFI(fi) {
+  if (!fi || !Object.keys(fi).length) return '';
+  const top = Object.entries(fi).slice(0,5);
+  const max = top[0][1];
+  return `<div style="margin-top:6px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">特徴量重要度（上位5）</div>
+    ${top.map(([k,v])=>`
+      <div class="fi-row">
+        <div class="fi-name">${k}</div>
+        <div class="fi-bar-bg"><div class="fi-bar" style="width:${Math.round(v/max*100)}%"></div></div>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ======= ローソク足チャート =======
+function drawChart(data) {
+  const canvas = document.getElementById('candleChart');
+  if (!canvas || !data || !data.length) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.parentElement.clientWidth - 20;
+  const H   = 200;
+  canvas.width  = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.scale(dpr, dpr);
+
+  const pad = {t:10, b:20, l:4, r:4};
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+  const n  = Math.min(data.length, 80);
+  const sl = data.slice(-n);
+  const prices = sl.flatMap(c=>[c.high,c.low]);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  const rng  = maxP - minP || 1;
+  const cand = Math.max(2, Math.floor(cw/n)-1);
+
+  ctx.clearRect(0,0,W,H);
+  sl.forEach((c,i) => {
+    const x     = pad.l + i*(cw/n) + cand/2;
+    const isBull= c.close >= c.open;
+    const col   = isBull ? '#3fb950' : '#f85149';
+    const yH    = pad.t + (1-(c.high -minP)/rng)*ch;
+    const yL    = pad.t + (1-(c.low  -minP)/rng)*ch;
+    const yO    = pad.t + (1-(c.open -minP)/rng)*ch;
+    const yC    = pad.t + (1-(c.close-minP)/rng)*ch;
+    ctx.beginPath(); ctx.strokeStyle=col; ctx.lineWidth=1;
+    ctx.moveTo(x,yH); ctx.lineTo(x,yL); ctx.stroke();
+    ctx.fillStyle=col;
+    ctx.fillRect(x-cand/2, Math.min(yO,yC), cand, Math.max(1,Math.abs(yC-yO)));
+  });
+  ctx.fillStyle='#8b949e'; ctx.font='9px sans-serif'; ctx.textAlign='center';
+  [0, Math.floor(n/2), n-1].forEach(i => {
+    if (!sl[i]) return;
+    const x = pad.l + i*(cw/n) + cand/2;
+    const t = (sl[i].time||'').toString();
+    ctx.fillText(t.includes('T') ? t.split('T')[1].slice(0,5) : t.slice(-5), x, H-4);
+  });
+}
+
+// ======= ランキング =======
+async function loadRanking() {
+  const area = document.getElementById('rankingArea');
+  area.innerHTML = '<div class="loading"><div class="spinner"></div><div>読み込み中...</div></div>';
+  await loadAllData();
+
+  const list = Object.entries(allPredictions)
+    .map(([t,p])=>({ticker:t,...p}))
+    .sort((a,b)=>b.bullish_prob-a.bullish_prob);
+
+  if (!list.length) {
+    area.innerHTML = '<div style="text-align:center;padding:36px;color:var(--muted)">予測データがまだありません。GitHub Actions の実行をお待ちください。</div>';
+    return;
+  }
+  area.innerHTML = `
+    <table class="tbl">
+      <thead><tr><th>銘柄</th><th>現在値</th><th>予測</th><th>陽線確率</th><th>精度</th></tr></thead>
+      <tbody>${list.map(p=>{
+        const isBull = p.prediction==='bullish';
+        const pct    = Math.round(p.bullish_prob*100);
+        const bw     = Math.round(Math.abs(p.bullish_prob-.5)*200);
+        return `<tr onclick="showPrediction('${p.ticker}');document.querySelector('[data-tab=predict]').click()">
+          <td><div style="font-weight:700">${p.ticker.replace('.T','')}</div><div style="font-size:10px;color:var(--muted)">${p.name||''}</div></td>
+          <td>¥${(p.price||0).toLocaleString()}</td>
+          <td class="${isBull?'bull':'bear'}">${isBull?'🟢陽':'🔴陰'}</td>
+          <td>${pct}%<span class="mini-bar" style="width:${bw}px;background:${isBull?'var(--green)':'var(--red)'}"></span></td>
+          <td>${p.model_accuracy?Math.round(p.model_accuracy*100)+'%':'−'}</td>
+        </tr>`;}).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ======= 取引分析（ブラウザ内処理）=======
+function handleDragOver(e) { e.preventDefault(); document.getElementById('uploadArea').classList.add('drag-over'); }
+function handleDragLeave()  { document.getElementById('uploadArea').classList.remove('drag-over'); }
+function handleDrop(e)      { e.preventDefault(); handleDragLeave(); const f=e.dataTransfer.files[0]; if(f) analyzeFile(f); }
+function uploadFile(e)      { const f=e.target.files[0]; if(f) analyzeFile(f); }
+
+function analyzeFile(file) {
+  const area = document.getElementById('tradeArea');
+  area.innerHTML = '<div class="loading"><div class="spinner"></div><div>分析中...</div></div>';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text   = e.target.result;
+      const trades = parseCSV(text);
+      if (!trades.length) { area.innerHTML = '<div class="err">CSVを解析できませんでした。SBI証券の取引履歴CSVをアップロードしてください。</div>'; return; }
+      renderTradeAnalysis(area, trades);
+    } catch(err) {
+      area.innerHTML = `<div class="err">エラー: ${esc(err.message)}</div>`;
+    }
+  };
+  // Shift-JIS / UTF-8 両対応
+  reader.readAsText(file, 'Shift_JIS');
+}
+
+function parseCSV(text) {
+  const lines  = text.split(/\r?\n/).filter(l=>l.trim());
+  let headerIdx = 0;
+  for (let i=0;i<lines.length;i++) {
+    if (lines[i].includes('銘柄') || lines[i].includes('約定') || lines[i].includes('コード')) { headerIdx=i; break; }
+  }
+  const headers = lines[headerIdx].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
+  const rows = [];
+  for (let i=headerIdx+1; i<lines.length; i++) {
+    const vals = lines[i].split(',').map(v=>v.trim().replace(/^"|"$/g,''));
+    if (vals.every(v=>!v)) continue;
+    const row = {};
+    headers.forEach((h,j) => row[h] = vals[j]||'');
+    rows.push(row);
+  }
+  return rows;
+}
+
+function toNum(v) { return parseFloat(String(v).replace(/,/g,'').replace('円','')) || 0; }
+
+function calcMetrics(trades) {
+  const pnlList = [];
+  trades.forEach(r => {
+    const openP  = toNum(r['建単価']  || r['約定単価'] || 0);
+    const closeP = toNum(r['返済単価'] || 0);
+    const qty    = toNum(r['約定数量'] || r['建玉数量'] || 1);
+    const fee    = toNum(r['手数料']   || 0);
+    const side   = (r['売買'] || r['売買区分'] || '').toString();
+    if (!openP || !closeP) return;
+    const pnl = (side.includes('売') ? openP - closeP : closeP - openP) * qty - fee;
+    pnlList.push(pnl);
+  });
+  if (!pnlList.length) return null;
+  const wins   = pnlList.filter(p=>p>0);
+  const losses = pnlList.filter(p=>p<0);
+  return {
+    total:  pnlList.length,
+    pnl:    pnlList.reduce((a,b)=>a+b,0),
+    winRate: wins.length / pnlList.length,
+    avgWin:  wins.length   ? wins.reduce((a,b)=>a+b,0)/wins.length   : 0,
+    avgLoss: losses.length ? losses.reduce((a,b)=>a+b,0)/losses.length : 0,
+    rr:      wins.length && losses.length ? Math.abs(wins.reduce((a,b)=>a+b,0)/wins.length / (losses.reduce((a,b)=>a+b,0)/losses.length)) : 0,
+    pf:      losses.length && losses.reduce((a,b)=>a+b,0) !== 0 ? wins.reduce((a,b)=>a+b,0) / Math.abs(losses.reduce((a,b)=>a+b,0)) : 0,
+    maxWin:  Math.max(...pnlList),
+    maxLoss: Math.min(...pnlList),
+    nWins:   wins.length,
+    nLosses: losses.length,
+  };
+}
+
+function renderTradeAnalysis(area, trades) {
+  const m = calcMetrics(trades);
+  if (!m) { area.innerHTML = '<div class="err">損益データを計算できませんでした。信用取引履歴CSV（建単価・返済単価を含むもの）をお試しください。</div>'; return; }
+
+  const pnlColor = m.pnl >= 0 ? 'pos' : 'neg';
+  const wrColor  = m.winRate >= 0.5 ? 'pos' : 'neg';
+  const rrColor  = m.rr >= 1 ? 'pos' : 'neg';
+  const pfColor  = m.pf >= 1 ? 'pos' : 'neg';
+
+  // 基本的なアドバイス（ブラウザ内ロジック）
+  const adviceList = buildAdvice(m);
+
+  area.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      総取引数: <strong style="color:var(--text)">${m.total}</strong> 件 解析完了
+    </div>
+    <div class="metrics-grid">
+      <div class="mc"><div class="mc-lbl">合計損益</div><div class="mc-val ${pnlColor}">¥${Math.round(m.pnl).toLocaleString()}</div></div>
+      <div class="mc"><div class="mc-lbl">勝率</div><div class="mc-val ${wrColor}">${Math.round(m.winRate*100)}%</div></div>
+      <div class="mc"><div class="mc-lbl">リスクリワード</div><div class="mc-val ${rrColor}">${m.rr.toFixed(2)}</div></div>
+      <div class="mc"><div class="mc-lbl">プロフィットファクター</div><div class="mc-val ${pfColor}">${m.pf.toFixed(2)}</div></div>
+      <div class="mc"><div class="mc-lbl">平均利益</div><div class="mc-val pos">¥${Math.round(m.avgWin).toLocaleString()}</div></div>
+      <div class="mc"><div class="mc-lbl">平均損失</div><div class="mc-val neg">¥${Math.round(m.avgLoss).toLocaleString()}</div></div>
+    </div>
+
+    <div class="sec-title">💡 改善アドバイス</div>
+    ${adviceList.map(a=>`
+      <div class="advice-item">
+        <div class="adv-ind">${a.title}<span class="eff ${a.cls}">${a.level}</span></div>
+        <div class="adv-det">${esc(a.detail)}</div>
+      </div>`).join('')}
+
+    <div class="sec-title">📊 勝敗内訳</div>
+    <div class="rr-box">
+      <div class="rr-row"><span class="rr-key">勝ちトレード</span><span>${m.nWins}回</span></div>
+      <div class="rr-row"><span class="rr-key">負けトレード</span><span>${m.nLosses}回</span></div>
+      <div class="rr-row"><span class="rr-key">最大利益</span><span style="color:var(--green)">¥${Math.round(m.maxWin).toLocaleString()}</span></div>
+      <div class="rr-row"><span class="rr-key">最大損失</span><span style="color:var(--red)">¥${Math.round(m.maxLoss).toLocaleString()}</span></div>
+    </div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.5;margin-top:8px">
+      ※ AIアドバイス機能（Claude API）は Oracle Cloud 版で利用できます。
+    </div>`;
+}
+
+function buildAdvice(m) {
+  const list = [];
+  if (m.winRate < 0.4) {
+    list.push({title:'エントリー精度の改善', level:'要改善', cls:'eff-l',
+      detail:`勝率${Math.round(m.winRate*100)}%は低水準です。エントリー条件を絞り込み（MA方向・RSI・出来高を複合条件に）、エントリー数を減らして質を上げることを優先してください。`});
+  } else if (m.winRate >= 0.6) {
+    list.push({title:'エントリー精度は良好', level:'良好', cls:'eff-h',
+      detail:`勝率${Math.round(m.winRate*100)}%は高水準です。エントリーの強みを活かしつつ、利益をさらに伸ばす出口戦略（トレーリングストップ等）を検討してください。`});
+  }
+  if (m.rr < 1.0) {
+    list.push({title:'損切りルールの厳格化', level:'重要', cls:'eff-l',
+      detail:`リスクリワード${m.rr.toFixed(2)}は1未満です。損失が利益を上回っています。ATRの1〜1.5倍を損切りラインとし、エントリー前に損切り価格を決めることを徹底してください。`});
+  } else if (m.rr >= 2.0) {
+    list.push({title:'優秀なリスクリワード', level:'良好', cls:'eff-h',
+      detail:`リスクリワード${m.rr.toFixed(2)}は高水準です。利益を十分に伸ばせています。現在の出口戦略を維持しながら、エントリー頻度を増やすことを検討できます。`});
+  }
+  if (m.pf < 1.0) {
+    list.push({title:'全体収支の改善が必要', level:'要改善', cls:'eff-l',
+      detail:`プロフィットファクター${m.pf.toFixed(2)}は1未満（全体損益がマイナス）です。「エントリー条件の厳格化」または「損切りの徹底」のどちらか一方に集中して改善することを推奨します。`});
+  }
+  if (!list.length) {
+    list.push({title:'バランスの取れた取引', level:'標準', cls:'eff-m',
+      detail:`勝率・RR・PFはバランスが取れています。記録を継続し、時間帯別・セクター別の勝率を分析することで、さらなる改善ポイントが見つかるでしょう。`});
+  }
+  return list;
+}
+
+// ======= システム状況 =======
+async function loadStatus() {
+  await loadAllData();
+  const area = document.getElementById('statusArea');
+  const s    = statusData;
+  const prog = s.training_progress || {};
+  const pct  = prog.completion_pct ? prog.completion_pct.toFixed(1) : 0;
+  const trained = (prog.trained||[]).length;
+  const total   = (prog.total  ||[]).length;
+  const sessionMap = {pre_market:'開場前',morning:'前場中',lunch:'昼休み',afternoon:'後場中',post_market:'閉場後'};
+
+  area.innerHTML = `
+    <div class="status-bar">
+      <div>セッション: <span>${sessionMap[s.session]||s.session||'−'}</span></div>
+      <div>市場: <span style="color:${s.market_open?'var(--green)':'var(--muted)'}">${s.market_open?'開場中':'閉場中'}</span></div>
+      <div>モデル数: <span>${s.trained_models||0}</span></div>
+      <div>データ更新: <span>${s.updated_at_utc ? new Date(s.updated_at_utc+'Z').toLocaleString('ja-JP') : '−'}</span></div>
+    </div>
+
+    <div class="info-box">
+      <div class="info-ttl">🤖 機械学習 進捗状況</div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <span>学習完了: ${trained} / ${total} 銘柄</span><span>${pct}%</span>
+      </div>
+      <div class="prog-bar-bg"><div class="prog-bar-fill" style="width:${pct}%"></div></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px">
+        モード: ${prog.mode||'−'} · 最終更新: ${(prog.last_updated||'−').slice(0,10)}
+      </div>
+    </div>
+
+    <div class="info-box">
+      <div class="info-ttl">ℹ️ システム情報</div>
+      <div style="font-size:12px;color:var(--muted);line-height:2">
+        ・ データソース: Yahoo Finance (yfinance 1.4.1) / JPX公式XLS<br>
+        ・ 1分足: 最大7日間取得可能<br>
+        ・ 歴史的学習: バブル崩壊後（1991年〜）の日足データ（初回のみ）<br>
+        ・ ザラバ学習: 前場・後場中に1分足データで随時更新<br>
+        ・ ML: LightGBM 4.x（フォールバック: scikit-learn GBM）<br>
+        ・ 実行環境: GitHub Actions（公開リポジトリ・完全無料）<br>
+        ・ 表示環境: GitHub Pages（静的ホスティング・完全無料）
+      </div>
+    </div>`;
+}
+
+// ======= ユーティリティ =======
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ======= 初期化 =======
+(async () => {
+  await loadAllData();
+  // ランキングタブをアクティブにしていれば即ロード
+  if (document.querySelector('[data-tab=ranking]')?.classList.contains('active')) loadRanking();
+})();
+</script>
+</body>
+</html>
