@@ -1,0 +1,47 @@
+name: JP Stock ML - Webサーバー起動（Oracle Cloud用）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 依存パッケージインストール
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: キャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            data/cache/
+          key: ml-models-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            ml-models-${{ runner.os }}-
+
+      - name: ディレクトリ作成
+        run: mkdir -p logs models data/cache
+
+      - name: Flaskサーバー起動
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PORT: 5000
+          TZ: Asia/Tokyo
+        run: python main.py --mode serve
