@@ -1,7 +1,7 @@
 {
-  "session": "afternoon",
+  "session": "morning",
   "market_open": true,
-  "trained_models": 107,
+  "trained_models": 109,
   "training_progress": null,
-  "updated_at_utc": "2026-06-26T05:58:29.931597"
+  "updated_at_utc": "2026-06-29T01:51:58.890587"
 }
